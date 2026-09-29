@@ -148,6 +148,7 @@ function App() {
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
   const [catalogManager, setCatalogManager] = useState<"items" | "spells" | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+  const [isEditingCharacter, setIsEditingCharacter] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
 
@@ -189,6 +190,8 @@ function App() {
     const formData = new FormData(event.currentTarget);
     const numberValue = (name: string) => Number(formData.get(name));
     const isMagic = formData.has("isMagic");
+    const characterBeingEdited = isEditingCharacter ? selectedCharacter : null;
+    if (isEditingCharacter && !characterBeingEdited) return;
     const newCharacter: Character = {
       details: {
         name: String(formData.get("name")).trim(),
@@ -222,7 +225,7 @@ function App() {
         hitDiceMax: numberValue("hitDiceMax"),
       },
       inventory: {
-        items: [],
+        items: characterBeingEdited ? copyInventory(characterBeingEdited.inventory).items : [],
         copper: numberValue("copper"),
         silver: numberValue("silver"),
         electrum: numberValue("electrum"),
@@ -238,9 +241,16 @@ function App() {
         spellSlots5: numberValue("spellSlots5"),
         spellSlots6: numberValue("spellSlots6"),
       },
-      spells: { known: [] },
+      spells: characterBeingEdited ? characterBeingEdited.spells : { known: [] },
     };
-    const updatedCharacters = [...characters, newCharacter];
+    const editedIndex = characterBeingEdited ? characters.indexOf(characterBeingEdited) : -1;
+    if (characterBeingEdited && editedIndex === -1) {
+      setErrorMessage(t("error.characterNotFound"));
+      return;
+    }
+    const updatedCharacters = characterBeingEdited
+      ? characters.map((character, index) => index === editedIndex ? newCharacter : character)
+      : [...characters, newCharacter];
 
     try {
       await invoke("save_characters", {
@@ -249,6 +259,7 @@ function App() {
       setCharacters(updatedCharacters);
       setSelectedCharacter(newCharacter);
       setIsCreating(false);
+      setIsEditingCharacter(false);
       setErrorMessage("");
     } catch (error) {
       setErrorMessage(t("error.saveCharacter", { error: String(error) }));
@@ -357,6 +368,8 @@ function App() {
     }
   }
 
+  const formCharacter = isEditingCharacter ? selectedCharacter : null;
+
   return (
     <main className="container">
       <header className="app-title-row">
@@ -390,14 +403,16 @@ function App() {
             onSaveSpells={saveSpellCatalog}
           />
         </>
-      ) : selectedCharacter !== null ? (
+      ) : selectedCharacter !== null && !isEditingCharacter ? (
         <>
-          <button
-            className="back-button"
-            onClick={() => setSelectedCharacter(null)}
-          >
-            {t("navigation.back")}
-          </button>
+          <div className="character-sheet-actions">
+            <button className="back-button" onClick={() => setSelectedCharacter(null)}>
+              {t("navigation.back")}
+            </button>
+            <button type="button" onClick={() => setIsEditingCharacter(true)}>
+              {t("action.editCharacter")}
+            </button>
+          </div>
           <CharacterSheet
             character={selectedCharacter}
             itemCatalog={itemCatalog}
@@ -406,34 +421,35 @@ function App() {
             onSaveInventory={saveCharacterInventory}
             onSaveSpells={saveCharacterSpells}
             onManageSpells={() => setCatalogManager("spells")}
+            onEdit={() => setIsEditingCharacter(true)}
           />
         </>
-      ) : isCreating ? (
+      ) : isCreating || isEditingCharacter ? (
         <form className="character-form" onSubmit={createCharacter}>
-          <h2>{t("creation.title")}</h2>
+          <h2>{t(isEditingCharacter ? "creation.editTitle" : "creation.title")}</h2>
           <fieldset>
             <legend>{t("creation.basics")}</legend>
             <div className="creation-grid creation-grid-details">
-              <label>{t("field.name")}<input name="name" required autoFocus /></label>
-              <label>{t("field.race")}<input name="race" required /></label>
-              <label>{t("field.class")}<input name="characterClass" required /></label>
-              <label>{t("field.level")}<input name="level" type="number" min="1" max="20" defaultValue="1" required /></label>
+              <label>{t("field.name")}<input name="name" defaultValue={formCharacter?.details.name ?? ""} required autoFocus /></label>
+              <label>{t("field.race")}<input name="race" defaultValue={formCharacter?.details.race ?? ""} required /></label>
+              <label>{t("field.class")}<input name="characterClass" defaultValue={formCharacter?.details.characterClass ?? ""} required /></label>
+              <label>{t("field.level")}<input name="level" type="number" min="1" max="20" defaultValue={formCharacter?.details.level ?? 1} required /></label>
             </div>
           </fieldset>
           <fieldset>
             <legend>{t("creation.background")}</legend>
             <div className="creation-grid creation-grid-details">
-              <label>{t("field.background")}<input name="background" /></label>
-              <label>{t("field.alignment")}<input name="alignment" /></label>
-              <label>{t("field.experience")}<input name="experience" type="number" min="0" defaultValue="0" /></label>
-              <label>{t("field.playerName")}<input name="playerName" /></label>
+              <label>{t("field.background")}<input name="background" defaultValue={formCharacter?.details.background ?? ""} /></label>
+              <label>{t("field.alignment")}<input name="alignment" defaultValue={formCharacter?.details.alignment ?? ""} /></label>
+              <label>{t("field.experience")}<input name="experience" type="number" min="0" defaultValue={formCharacter?.details.experience ?? 0} /></label>
+              <label>{t("field.playerName")}<input name="playerName" defaultValue={formCharacter?.details.playerName ?? ""} /></label>
             </div>
             <div className="creation-grid creation-grid-story">
-              <label>{t("field.personality")}<textarea name="personalityTraits" rows={2} /></label>
-              <label>{t("field.ideals")}<textarea name="ideals" rows={2} /></label>
-              <label>{t("field.bonds")}<textarea name="bonds" rows={2} /></label>
-              <label>{t("field.flaws")}<textarea name="flaws" rows={2} /></label>
-              <label className="creation-backstory">{t("field.backstory")}<textarea name="backstory" rows={4} /></label>
+              <label>{t("field.personality")}<textarea name="personalityTraits" rows={2} defaultValue={formCharacter?.details.personalityTraits ?? ""} /></label>
+              <label>{t("field.ideals")}<textarea name="ideals" rows={2} defaultValue={formCharacter?.details.ideals ?? ""} /></label>
+              <label>{t("field.bonds")}<textarea name="bonds" rows={2} defaultValue={formCharacter?.details.bonds ?? ""} /></label>
+              <label>{t("field.flaws")}<textarea name="flaws" rows={2} defaultValue={formCharacter?.details.flaws ?? ""} /></label>
+              <label className="creation-backstory">{t("field.backstory")}<textarea name="backstory" rows={4} defaultValue={formCharacter?.details.backstory ?? ""} /></label>
             </div>
           </fieldset>
           <fieldset>
@@ -447,46 +463,46 @@ function App() {
                 ["wis", "attribute.wis"],
                 ["cha", "attribute.cha"],
               ] as const).map(([key, label]) => (
-                <label key={key}>{t(label)}<input name={key} type="number" min="1" max="30" defaultValue="10" required /></label>
+                <label key={key}>{t(label)}<input name={key} type="number" min="1" max="30" defaultValue={formCharacter?.attributes[key] ?? 10} required /></label>
               ))}
             </div>
           </fieldset>
           <fieldset>
             <legend>{t("creation.combat")}</legend>
             <div className="creation-grid creation-grid-stats">
-              <label>{t("stat.hpMax")}<input name="hpMax" type="number" min="1" defaultValue="10" required /></label>
-              <label>{t("stat.hpCurrent")}<input name="hpCurrent" type="number" min="0" defaultValue="10" required /></label>
-              <label>{t("stat.ac")}<input name="ac" type="number" min="0" defaultValue="10" required /></label>
-              <label>{t("stat.initiative")}<input name="initiative" type="number" defaultValue="0" required /></label>
-              <label>{t("stat.speed")}<input name="speed" type="number" min="0" defaultValue="30" required /></label>
-              <label>{t("stat.hitDice")}<input name="hitDiceMax" type="number" min="1" defaultValue="1" required /></label>
+              <label>{t("stat.hpMax")}<input name="hpMax" type="number" min="1" defaultValue={formCharacter?.stats.hpMax ?? 10} required /></label>
+              <label>{t("stat.hpCurrent")}<input name="hpCurrent" type="number" min="0" defaultValue={formCharacter?.stats.hpCurrent ?? 10} required /></label>
+              <label>{t("stat.ac")}<input name="ac" type="number" min="0" defaultValue={formCharacter?.stats.ac ?? 10} required /></label>
+              <label>{t("stat.initiative")}<input name="initiative" type="number" defaultValue={formCharacter?.stats.initiative ?? 0} required /></label>
+              <label>{t("stat.speed")}<input name="speed" type="number" min="0" defaultValue={formCharacter?.stats.speed ?? 30} required /></label>
+              <label>{t("stat.hitDice")}<input name="hitDiceMax" type="number" min="1" defaultValue={formCharacter?.stats.hitDiceMax ?? 1} required /></label>
             </div>
           </fieldset>
           <fieldset>
             <legend>{t("creation.spells")}</legend>
             <label className="creation-checkbox">
-              <input name="isMagic" type="checkbox" />
+              <input name="isMagic" type="checkbox" defaultChecked={formCharacter?.spellSlots.isMagic ?? false} />
               {t("creation.isMagic")}
             </label>
             <div className="creation-grid creation-grid-slots">
               {[1, 2, 3, 4, 5, 6].map((level) => (
-                <label key={level}>{t("spell.slot", { level })}<input name={`spellSlots${level}`} type="number" min="0" defaultValue="0" /></label>
+                <label key={level}>{t("spell.slot", { level })}<input name={`spellSlots${level}`} type="number" min="0" defaultValue={Number(formCharacter?.spellSlots[`spellSlots${level}` as keyof CharacterMagic] ?? 0)} /></label>
               ))}
             </div>
           </fieldset>
           <fieldset>
             <legend>{t("creation.startingMoney")}</legend>
             <div className="creation-grid creation-grid-coins">
-              <label>{t("coin.copper")}<input name="copper" type="number" min="0" defaultValue="0" /></label>
-              <label>{t("coin.silver")}<input name="silver" type="number" min="0" defaultValue="0" /></label>
-              <label>{t("coin.electrum")}<input name="electrum" type="number" min="0" defaultValue="0" /></label>
-              <label>{t("coin.gold")}<input name="gold" type="number" min="0" defaultValue="0" /></label>
-              <label>{t("coin.platinum")}<input name="platinum" type="number" min="0" defaultValue="0" /></label>
+              <label>{t("coin.copper")}<input name="copper" type="number" min="0" defaultValue={formCharacter?.inventory.copper ?? 0} /></label>
+              <label>{t("coin.silver")}<input name="silver" type="number" min="0" defaultValue={formCharacter?.inventory.silver ?? 0} /></label>
+              <label>{t("coin.electrum")}<input name="electrum" type="number" min="0" defaultValue={formCharacter?.inventory.electrum ?? 0} /></label>
+              <label>{t("coin.gold")}<input name="gold" type="number" min="0" defaultValue={formCharacter?.inventory.gold ?? 0} /></label>
+              <label>{t("coin.platinum")}<input name="platinum" type="number" min="0" defaultValue={formCharacter?.inventory.platinum ?? 0} /></label>
             </div>
           </fieldset>
           <div className="form-actions">
-            <button type="submit">{t("action.createCharacter")}</button>
-            <button type="button" onClick={() => setIsCreating(false)}>
+            <button type="submit">{t(isEditingCharacter ? "action.saveCharacterChanges" : "action.createCharacter")}</button>
+            <button type="button" onClick={() => { setIsCreating(false); setIsEditingCharacter(false); }}>
               {t("action.cancel")}
             </button>
           </div>
@@ -823,6 +839,7 @@ function CharacterSheet({
   onSaveInventory,
   onSaveSpells,
   onManageSpells,
+  onEdit,
 }: {
   character: Character;
   itemCatalog: CatalogItem[];
@@ -831,43 +848,67 @@ function CharacterSheet({
   onSaveInventory: (inventory: CharacterInventory) => Promise<boolean>;
   onSaveSpells: (spells: CharacterSpells) => Promise<boolean>;
   onManageSpells: () => void;
+  onEdit: () => void;
 }) {
   const { t } = useTranslation();
+  const abilityFields = [
+    ["str", "attribute.str"],
+    ["dex", "attribute.dex"],
+    ["con", "attribute.con"],
+    ["int", "attribute.int"],
+    ["wis", "attribute.wis"],
+    ["cha", "attribute.cha"],
+  ] as const;
+  const proficiencyBonus = Math.ceil(character.details.level / 4) + 1;
+
   return (
     <section className="Character">
-      <header>
-        <h2>{character.details.name}</h2>
-        <p>
-          {t("character.summary", {
-            level: character.details.level,
-            race: character.details.race,
-            class: character.details.characterClass,
-          })}
-        </p>
+      <header className="character-sheet-header">
+        <div>
+          <h2>{character.details.name}</h2>
+          <p>
+            {t("character.summary", {
+              level: character.details.level,
+              race: character.details.race,
+              class: character.details.characterClass,
+            })}
+          </p>
+        </div>
+        <button type="button" onClick={onEdit}>{t("action.editCharacter")}</button>
       </header>
 
-      <section>
+      <section className="sheet-combat-section">
         <h3>{t("sheet.combat")}</h3>
-        <p>{t("sheet.hp", { current: character.stats.hpCurrent, max: character.stats.hpMax })}</p>
-        <p>{t("sheet.ac", { value: character.stats.ac })}</p>
-        <p>{t("sheet.initiative", { value: character.stats.initiative })}</p>
-        <p>{t("sheet.speed", { value: character.stats.speed })}</p>
+        <div className="sheet-combat-grid">
+          <div className="sheet-combat-stat sheet-hit-points">
+            <span>{t("stat.hitPoints")}</span>
+            <strong>{character.stats.hpCurrent} / {character.stats.hpMax}</strong>
+            <progress max={Math.max(character.stats.hpMax, 1)} value={Math.min(character.stats.hpCurrent, character.stats.hpMax)} aria-label={t("sheet.hp", { current: character.stats.hpCurrent, max: character.stats.hpMax })} />
+          </div>
+          <div className="sheet-combat-stat"><span>{t("stat.ac")}</span><strong>{character.stats.ac}</strong></div>
+          <div className="sheet-combat-stat"><span>{t("stat.initiative")}</span><strong>{character.stats.initiative >= 0 ? `+${character.stats.initiative}` : character.stats.initiative}</strong></div>
+          <div className="sheet-combat-stat"><span>{t("stat.speed")}</span><strong>{character.stats.speed} ft.</strong></div>
+          <div className="sheet-combat-stat"><span>{t("stat.proficiencyBonus")}</span><strong>+{proficiencyBonus}</strong></div>
+          <div className="sheet-combat-stat"><span>{t("stat.hitDice")}</span><strong>{character.stats.hitDiceMax}</strong></div>
+        </div>
       </section>
 
-      <section>
+      <section className="sheet-abilities-section">
         <h3>{t("sheet.attributes")}</h3>
-        <ul>
-          {([
-            ["str", "attribute.str"],
-            ["dex", "attribute.dex"],
-            ["con", "attribute.con"],
-            ["int", "attribute.int"],
-            ["wis", "attribute.wis"],
-            ["cha", "attribute.cha"],
-          ] as const).map(([key, label]) => (
-            <li key={key}>{t(label)}: {character.attributes[key]}</li>
-          ))}
-        </ul>
+        <div className="ability-score-grid">
+          {abilityFields.map(([key, label]) => {
+            const score = character.attributes[key];
+            const modifier = Math.floor((score - 10) / 2);
+            return (
+              <div className="ability-score" key={key}>
+                <span>{t(label)}</span>
+                <strong>{score}</strong>
+                <small>{t("sheet.modifier")}</small>
+                <b>{modifier >= 0 ? `+${modifier}` : modifier}</b>
+              </div>
+            );
+          })}
+        </div>
       </section>
 
       {(
