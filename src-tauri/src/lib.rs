@@ -3,6 +3,7 @@ use tauri::Manager;
 
 const DEFAULT_CHARACTERS_JSON: &str = include_str!("../default-characters.json");
 const DEFAULT_ITEMS_JSON: &str = include_str!("../default-items.json");
+const DEFAULT_SPELLS_JSON: &str = include_str!("../default-spells.json");
 
 fn read_or_create_json(path: &Path, default_json: &str) -> Result<String, String> {
     match std::fs::read_to_string(path) {
@@ -39,6 +40,16 @@ fn load_items(app: tauri::AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+fn load_spells(app: tauri::AppHandle) -> Result<String, String> {
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    read_or_create_json(&directory.join("spells.json"), DEFAULT_SPELLS_JSON)
+}
+
+#[tauri::command]
 fn save_characters(app: tauri::AppHandle, characters_json: String) -> Result<(), String> {
     serde_json::from_str::<serde_json::Value>(&characters_json)
         .map_err(|error| format!("Invalid characters JSON: {error}"))?;
@@ -62,8 +73,20 @@ fn save_items(app: tauri::AppHandle, items_json: String) -> Result<(), String> {
         .app_data_dir()
         .map_err(|error| error.to_string())?;
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    std::fs::write(directory.join("items.json"), items_json)
-        .map_err(|error| error.to_string())
+    std::fs::write(directory.join("items.json"), items_json).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn save_spells(app: tauri::AppHandle, spells_json: String) -> Result<(), String> {
+    serde_json::from_str::<Vec<serde_json::Value>>(&spells_json)
+        .map_err(|error| format!("Invalid spells JSON: {error}"))?;
+
+    let directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+    std::fs::write(directory.join("spells.json"), spells_json).map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -74,7 +97,9 @@ pub fn run() {
             load_characters,
             save_characters,
             load_items,
-            save_items
+            save_items,
+            load_spells,
+            save_spells
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -82,7 +107,9 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use super::{read_or_create_json, DEFAULT_CHARACTERS_JSON, DEFAULT_ITEMS_JSON};
+    use super::{
+        read_or_create_json, DEFAULT_CHARACTERS_JSON, DEFAULT_ITEMS_JSON, DEFAULT_SPELLS_JSON,
+    };
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
@@ -120,5 +147,12 @@ mod tests {
         let items: Vec<serde_json::Value> =
             serde_json::from_str(DEFAULT_ITEMS_JSON).expect("parse default items");
         assert!(!items.is_empty());
+    }
+
+    #[test]
+    fn default_spells_are_valid_json_array() {
+        let spells: Vec<serde_json::Value> =
+            serde_json::from_str(DEFAULT_SPELLS_JSON).expect("parse default spells");
+        assert!(!spells.is_empty());
     }
 }
