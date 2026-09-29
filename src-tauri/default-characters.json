@@ -24,8 +24,8 @@
     },
     "inventory": {
       "items": [
-        { "name": "Zauberbuch", "quantity": 1, "weight": 3, "description": "Enthält Zauber" },
-        { "name": "Heiltrank", "quantity": 2, "weight": 0.5, "description": "Heilt Wunden" }
+        { "name": "Spellbook", "quantity": 1, "weight": 3, "description": "Contains spells" },
+        { "name": "Potion of Healing", "quantity": 2, "weight": 0.5, "description": "Heals wounds" }
       ],
       "copper": 5,
       "silver": 12,
@@ -44,8 +44,8 @@
     },
     "spells": {
       "known": [
-        { "name": "Magisches Geschoss", "level": 1, "prepared": true, "description": "Energiegeschoss" },
-        { "name": "Schild", "level": 1, "prepared": false, "description": "Magischer Schutz" }
+        { "name": "Magic Missile", "level": 1, "prepared": true, "description": "Darts of magical force" },
+        { "name": "Shield", "level": 1, "prepared": false, "description": "Magical protection" }
       ]
     }
   }

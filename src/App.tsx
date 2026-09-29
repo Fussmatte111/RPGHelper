@@ -933,7 +933,8 @@ function InventoryEditor({
 }) {
   const { t, language } = useTranslation();
   const [inventory, setInventory] = useState(() => copyInventory(savedInventory));
-  const [selectedCatalogId, setSelectedCatalogId] = useState("");
+  const [itemSearch, setItemSearch] = useState("");
+  const [selectedItemType, setSelectedItemType] = useState("all");
   const [isCreatingCatalogItem, setIsCreatingCatalogItem] = useState(false);
   const [newItemMode, setNewItemMode] = useState<"simple" | "detailed">("simple");
   const [newItemCategory, setNewItemCategory] = useState<DetailedItemCategory>("weapon");
@@ -971,8 +972,8 @@ function InventoryEditor({
     setIsSaved(false);
   }
 
-  function addItem() {
-    const catalogItem = itemCatalog.find((item) => item.id === selectedCatalogId);
+  function addItem(catalogItemId: string) {
+    const catalogItem = itemCatalog.find((item) => item.id === catalogItemId);
     if (!catalogItem) return;
 
     setInventory((current) => ({
@@ -983,9 +984,28 @@ function InventoryEditor({
           : item)
         : [...current.items, { ...catalogItem, quantity: 1 }],
     }));
-    setSelectedCatalogId("");
     setIsSaved(false);
   }
+
+  const itemTypes = Array.from(new Set(
+    itemCatalog
+      .map((item) => item.itemType?.trim())
+      .filter((itemType): itemType is string => Boolean(itemType)),
+  ));
+  const normalizedItemSearch = itemSearch.trim().toLocaleLowerCase(language);
+  const filteredCatalogItems = itemCatalog.filter((item) => {
+    const matchesType = selectedItemType === "all" || item.itemType === selectedItemType;
+    const searchableText = [
+      item.name,
+      item.itemType,
+      item.subtype,
+      item.rarity,
+      item.description,
+      item.properties,
+      item.damageType,
+    ].filter(Boolean).join(" ").toLocaleLowerCase(language);
+    return matchesType && (!normalizedItemSearch || searchableText.includes(normalizedItemSearch));
+  });
 
   async function saveInventory() {
     setIsSaving(true);
@@ -1168,24 +1188,71 @@ function InventoryEditor({
         ))}
         {inventory.items.length === 0 && <p className="inventory-empty">{t("inventory.empty")}</p>}
 
-        <div className="inventory-catalog-add">
-          <label>
-            {t("inventory.catalogSelect")}
-            <select value={selectedCatalogId} onChange={(event) => setSelectedCatalogId(event.currentTarget.value)}>
-              <option value="">{t("inventory.selectPlaceholder")}</option>
-              {itemCatalog.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}{item.itemType ? ` · ${item.itemType}` : ""}
-                </option>
-              ))}
-            </select>
+        <div className="inventory-catalog-picker">
+          <div className="inventory-picker-heading">
+            <div>
+              <h4>{t("inventory.catalogSelect")}</h4>
+              <span>{t("inventory.resultCount", { count: filteredCatalogItems.length })}</span>
+            </div>
+            <button type="button" className="secondary-action" onClick={() => setIsCreatingCatalogItem((current) => !current)}>
+              {isCreatingCatalogItem ? t("inventory.closeItemForm") : t("inventory.createItem")}
+            </button>
+          </div>
+          <label className="inventory-search">
+            <span className="visually-hidden">{t("inventory.searchLabel")}</span>
+            <input
+              type="search"
+              value={itemSearch}
+              onChange={(event) => setItemSearch(event.currentTarget.value)}
+              placeholder={t("inventory.searchPlaceholder")}
+            />
           </label>
-          <button type="button" onClick={addItem} disabled={!selectedCatalogId}>
-            {t("inventory.addSelected")}
-          </button>
-          <button type="button" className="secondary-action" onClick={() => setIsCreatingCatalogItem((current) => !current)}>
-            {isCreatingCatalogItem ? t("inventory.closeItemForm") : t("inventory.createItem")}
-          </button>
+          <div className="inventory-type-filters" role="group" aria-label={t("inventory.filterByType")}>
+            <button
+              type="button"
+              className={selectedItemType === "all" ? "active" : ""}
+              aria-pressed={selectedItemType === "all"}
+              onClick={() => setSelectedItemType("all")}
+            >
+              {t("inventory.filterAll")}
+            </button>
+            {itemTypes.map((itemType) => (
+              <button
+                type="button"
+                key={itemType}
+                className={selectedItemType === itemType ? "active" : ""}
+                aria-pressed={selectedItemType === itemType}
+                onClick={() => setSelectedItemType(itemType)}
+              >
+                {itemType}
+              </button>
+            ))}
+          </div>
+          <div className="inventory-picker-results">
+            {filteredCatalogItems.map((item) => {
+              const ownedItem = inventory.items.find((inventoryItem) => inventoryItem.id === item.id);
+              return (
+                <article className="inventory-picker-item" key={item.id}>
+                  <div className="inventory-picker-item-copy">
+                    <div className="inventory-picker-item-title">
+                      <strong>{item.name}</strong>
+                      {ownedItem && <span>{t("inventory.inInventory", { quantity: ownedItem.quantity })}</span>}
+                    </div>
+                    <div className="inventory-picker-tags">
+                      {item.itemType && <span>{item.itemType}</span>}
+                      {item.subtype && <span>{item.subtype}</span>}
+                      {item.rarity && <span>{item.rarity}</span>}
+                    </div>
+                    {item.description && <p>{item.description}</p>}
+                  </div>
+                  <button type="button" onClick={() => addItem(item.id)} aria-label={t("inventory.addNamed", { name: item.name })}>
+                    {t("inventory.addSelected")}
+                  </button>
+                </article>
+              );
+            })}
+            {filteredCatalogItems.length === 0 && <p className="inventory-empty">{t(itemCatalog.length === 0 ? "inventory.catalogEmpty" : "inventory.noSearchResults")}</p>}
+          </div>
         </div>
 
         {isCreatingCatalogItem && (
@@ -1329,7 +1396,9 @@ function SpellEditor({
 }) {
   const { t } = useTranslation();
   const [knownSpells, setKnownSpells] = useState(() => savedSpells.known.map((spell) => ({ ...spell })));
-  const [selectedSpellId, setSelectedSpellId] = useState("");
+  const [spellSearch, setSpellSearch] = useState("");
+  const [selectedSpellLevel, setSelectedSpellLevel] = useState<number | "all">("all");
+  const [selectedSpellSchool, setSelectedSpellSchool] = useState("all");
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
 
@@ -1338,13 +1407,36 @@ function SpellEditor({
     setIsSaved(false);
   }, [savedSpells]);
 
-  function addSpell() {
-    const catalogSpell = spellCatalog.find((spell) => spell.id === selectedSpellId);
+  function addSpell(spellId: string) {
+    const catalogSpell = spellCatalog.find((spell) => spell.id === spellId);
     if (!catalogSpell || knownSpells.some((spell) => spell.id === catalogSpell.id)) return;
     setKnownSpells((current) => [...current, { ...catalogSpell, prepared: false }]);
-    setSelectedSpellId("");
     setIsSaved(false);
   }
+
+  const spellSchools = Array.from(new Set(
+    spellCatalog
+      .map((spell) => spell.school?.trim())
+      .filter((school): school is string => Boolean(school)),
+  ));
+  const normalizedSpellSearch = spellSearch.trim().toLocaleLowerCase();
+  const filteredSpellCatalog = spellCatalog
+    .filter((spell) => {
+      const matchesLevel = selectedSpellLevel === "all" || spell.level === selectedSpellLevel;
+      const matchesSchool = selectedSpellSchool === "all" || spell.school === selectedSpellSchool;
+      const searchableText = [
+        spell.name,
+        spell.school,
+        spell.classes,
+        spell.castingTime,
+        spell.rangeArea,
+        spell.components,
+        spell.description,
+        spell.higherLevels,
+      ].filter(Boolean).join(" ").toLocaleLowerCase();
+      return matchesLevel && matchesSchool && (!normalizedSpellSearch || searchableText.includes(normalizedSpellSearch));
+    })
+    .sort((left, right) => left.level - right.level || left.name.localeCompare(right.name));
 
   async function saveSpells() {
     setIsSaving(true);
@@ -1405,16 +1497,66 @@ function SpellEditor({
           </article>
         ))}
       </div>
-      <div className="spell-catalog-add">
-        <label>
-          {t("spell.chooseFromCatalog")}
-          <select value={selectedSpellId} onChange={(event) => setSelectedSpellId(event.currentTarget.value)}>
-            <option value="">{t("inventory.selectPlaceholder")}</option>
-            {spellCatalog.map((spell) => <option key={spell.id} value={spell.id}>{spell.name} · {t("spell.level", { level: spell.level })}</option>)}
-          </select>
+      <div className="spell-catalog-picker">
+        <div className="spell-picker-heading">
+          <div>
+            <h4>{t("spell.chooseFromCatalog")}</h4>
+            <span>{t("spell.resultCount", { count: filteredSpellCatalog.length })}</span>
+          </div>
+          <button type="button" onClick={onManageCatalog}>{t("catalog.manageSpells")}</button>
+        </div>
+        <label className="spell-search">
+          <span className="visually-hidden">{t("spell.searchLabel")}</span>
+          <input
+            type="search"
+            value={spellSearch}
+            onChange={(event) => setSpellSearch(event.currentTarget.value)}
+            placeholder={t("spell.searchPlaceholder")}
+          />
         </label>
-        <button type="button" onClick={addSpell} disabled={!selectedSpellId}>{t("spell.addToCharacter")}</button>
-        <button type="button" onClick={onManageCatalog}>{t("catalog.manageSpells")}</button>
+        <div className="spell-filter-row">
+          <div className="spell-level-filters" role="group" aria-label={t("spell.filterLevel")}>
+            <button type="button" className={selectedSpellLevel === "all" ? "active" : ""} aria-pressed={selectedSpellLevel === "all"} onClick={() => setSelectedSpellLevel("all")}>{t("spell.filterAllLevels")}</button>
+            {Array.from(new Set(spellCatalog.map((spell) => spell.level))).sort((left, right) => left - right).map((level) => (
+              <button type="button" key={level} className={selectedSpellLevel === level ? "active" : ""} aria-pressed={selectedSpellLevel === level} onClick={() => setSelectedSpellLevel(level)}>
+                {level === 0 ? t("spell.cantrip") : level}
+              </button>
+            ))}
+          </div>
+          <label className="spell-school-filter">
+            <span>{t("spell.filterSchool")}</span>
+            <select value={selectedSpellSchool} onChange={(event) => setSelectedSpellSchool(event.currentTarget.value)}>
+              <option value="all">{t("spell.filterAllSchools")}</option>
+              {spellSchools.map((school) => <option key={school} value={school}>{school}</option>)}
+            </select>
+          </label>
+        </div>
+        <div className="spell-picker-results">
+          {filteredSpellCatalog.map((spell) => {
+            const isKnown = knownSpells.some((knownSpell) => knownSpell.id === spell.id);
+            return (
+              <article className="spell-picker-entry" key={spell.id}>
+                <div className="spell-picker-copy">
+                  <div className="spell-picker-title">
+                    <strong>{spell.name}</strong>
+                    <span>{spell.level === 0 ? t("spell.cantrip") : t("spell.level", { level: spell.level })}</span>
+                  </div>
+                  <div className="spell-picker-tags">
+                    {spell.school && <span>{spell.school}</span>}
+                    {spell.ritual && <span>{t("spell.field.ritual")}</span>}
+                    {spell.concentration && <span>{t("spell.field.concentration")}</span>}
+                    {spell.classes && <span>{spell.classes}</span>}
+                  </div>
+                  {spell.description && <p>{spell.description}</p>}
+                </div>
+                <button type="button" onClick={() => addSpell(spell.id)} disabled={isKnown} aria-label={t(isKnown ? "spell.alreadyKnownNamed" : "spell.addNamed", { name: spell.name })}>
+                  {isKnown ? t("spell.alreadyKnown") : t("spell.addToCharacter")}
+                </button>
+              </article>
+            );
+          })}
+          {filteredSpellCatalog.length === 0 && <p className="catalog-empty">{t(spellCatalog.length === 0 ? "spell.catalogEmpty" : "spell.noResults")}</p>}
+        </div>
       </div>
       <div className="inventory-save-row">
         <button type="button" onClick={() => void saveSpells()} disabled={isSaving}>{isSaving ? t("inventory.saving") : t("spell.saveBook")}</button>

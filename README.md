@@ -36,7 +36,7 @@ Edit `src-tauri/default-spells.json` to change the spells bundled into a build. 
 
 ## Languages
 
-UI translations live in `src/i18n.tsx`. To add a language:
+English is the initial language. The selected language is saved on this device. UI translations live in `src/i18n.tsx`. To add a language:
 
 1. Add its language code to `languages` and its native display name to `languageNames`.
 2. Add a dictionary for that code to `dictionaries`, using the English dictionary as the key reference.

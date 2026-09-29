@@ -62,6 +62,19 @@ const english = {
   "spell.showDetails": "Show spell details",
   "spell.chooseFromCatalog": "Choose a spell from the catalog",
   "spell.addToCharacter": "Add to spellbook",
+  "spell.resultCount": "{{count}} spells found",
+  "spell.searchLabel": "Search spells",
+  "spell.searchPlaceholder": "Search by name, school, class, or description",
+  "spell.filterLevel": "Filter by spell level",
+  "spell.filterAllLevels": "All levels",
+  "spell.cantrip": "Cantrip",
+  "spell.filterSchool": "School",
+  "spell.filterAllSchools": "All schools",
+  "spell.alreadyKnown": "In spellbook",
+  "spell.alreadyKnownNamed": "{{name}} is already in the spellbook",
+  "spell.addNamed": "Add {{name}} to the spellbook",
+  "spell.catalogEmpty": "The spell catalog is empty.",
+  "spell.noResults": "No spells match these filters.",
   "spell.saveBook": "Save spellbook",
   "navigation.back": "Back to characters",
   "creation.title": "Create a character",
@@ -153,6 +166,15 @@ const english = {
   "inventory.descriptionFor": "Description for {{name}}",
   "inventory.empty": "No items in inventory.",
   "inventory.catalogSelect": "Choose an item from the catalog",
+  "inventory.resultCount": "{{count}} items found",
+  "inventory.searchLabel": "Search items",
+  "inventory.searchPlaceholder": "Search by name, type, rarity, or description",
+  "inventory.filterByType": "Filter items by type",
+  "inventory.filterAll": "All types",
+  "inventory.inInventory": "In inventory: {{quantity}}",
+  "inventory.addNamed": "Add {{name}} to inventory",
+  "inventory.catalogEmpty": "The item catalog is empty.",
+  "inventory.noSearchResults": "No items match these filters.",
   "inventory.selectPlaceholder": "Select an item ...",
   "inventory.addSelected": "Add to inventory",
   "inventory.createItem": "Create new item",
@@ -312,6 +334,19 @@ const german: Record<TranslationKey, string> = {
   "spell.showDetails": "Zauberdetails anzeigen",
   "spell.chooseFromCatalog": "Zauber aus Katalog auswählen",
   "spell.addToCharacter": "Zum Zauberbuch hinzufügen",
+  "spell.resultCount": "{{count}} Zauber gefunden",
+  "spell.searchLabel": "Zauber durchsuchen",
+  "spell.searchPlaceholder": "Name, Magieschule, Klasse oder Beschreibung suchen",
+  "spell.filterLevel": "Nach Zaubergrad filtern",
+  "spell.filterAllLevels": "Alle Grade",
+  "spell.cantrip": "Zaubertrick",
+  "spell.filterSchool": "Magieschule",
+  "spell.filterAllSchools": "Alle Schulen",
+  "spell.alreadyKnown": "Im Zauberbuch",
+  "spell.alreadyKnownNamed": "{{name}} ist bereits im Zauberbuch",
+  "spell.addNamed": "{{name}} zum Zauberbuch hinzufügen",
+  "spell.catalogEmpty": "Der Zauberkatalog ist leer.",
+  "spell.noResults": "Keine Zauber passen zu diesen Filtern.",
   "spell.saveBook": "Zauberbuch speichern",
   "navigation.back": "Zurück zur Übersicht",
   "creation.title": "Neuen Charakter anlegen",
@@ -403,6 +438,15 @@ const german: Record<TranslationKey, string> = {
   "inventory.descriptionFor": "Beschreibung für {{name}}",
   "inventory.empty": "Keine Gegenstände im Inventar.",
   "inventory.catalogSelect": "Item aus Katalog auswählen",
+  "inventory.resultCount": "{{count}} Items gefunden",
+  "inventory.searchLabel": "Items durchsuchen",
+  "inventory.searchPlaceholder": "Name, Typ, Seltenheit oder Beschreibung suchen",
+  "inventory.filterByType": "Items nach Typ filtern",
+  "inventory.filterAll": "Alle Typen",
+  "inventory.inInventory": "Im Inventar: {{quantity}}",
+  "inventory.addNamed": "{{name}} zum Inventar hinzufügen",
+  "inventory.catalogEmpty": "Der Itemkatalog ist leer.",
+  "inventory.noSearchResults": "Keine Items passen zu diesen Filtern.",
   "inventory.selectPlaceholder": "Item auswählen ...",
   "inventory.addSelected": "Zum Inventar hinzufügen",
   "inventory.createItem": "Neues Item erstellen",
@@ -520,19 +564,20 @@ const I18nContext = createContext<I18nContextValue | null>(null);
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguage] = useState<Language>(() => {
-    const savedLanguage = window.localStorage.getItem("dnd-tracker-language");
-    return savedLanguage === "en" ? "en" : "de";
+    const savedLanguage = window.localStorage.getItem("dnd-tracker-language-v2");
+    return savedLanguage === "de" ? "de" : "en";
   });
 
   useEffect(() => {
-    window.localStorage.setItem("dnd-tracker-language", language);
+    window.localStorage.setItem("dnd-tracker-language-v2", language);
     document.documentElement.lang = language;
   }, [language]);
 
   function t(key: TranslationKey, values: Record<string, string | number> = {}) {
+    const template = dictionaries[language]?.[key] ?? english[key] ?? key;
     return Object.entries(values).reduce(
       (text, [name, value]) => text.split(`{{${name}}}`).join(String(value)),
-      dictionaries[language][key],
+      template,
     );
   }
 
