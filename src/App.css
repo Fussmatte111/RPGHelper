@@ -114,3 +114,240 @@ button {
     background-color: #0f0f0f69;
   }
 }
+
+
+.Character {
+  width: min(100%, 900px);
+  margin-inline: auto;
+  text-align: left;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.Character section {
+  border-top: 2px solid #94a3b8;
+  padding: 1rem 0;
+}
+
+.inventory-section {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+.inventory-editor {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.inventory-item-fields {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.2fr) 82px 92px minmax(140px, 1.8fr) auto;
+  align-items: end;
+  gap: 0.5rem;
+}
+
+.inventory-item-heading {
+  align-items: center;
+  color: #475467;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.inventory-item-fields input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 0.5rem;
+}
+
+.inventory-remove-button {
+  padding: 0.5rem 0.65rem;
+  border-color: #f2b8b5;
+  color: #b42318;
+  background: #fff0ed;
+  box-shadow: none;
+}
+
+.inventory-empty {
+  margin: 0;
+  color: #667085;
+}
+
+.inventory-add-row {
+  padding-top: 0.75rem;
+  border-top: 1px solid #eaecf0;
+}
+
+.coin-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
+  gap: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #eaecf0;
+}
+
+.coin-fields label {
+  display: grid;
+  gap: 0.3rem;
+  color: #475467;
+  font-size: 0.9rem;
+}
+
+.coin-fields input {
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.inventory-save-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.inventory-save-row [role="status"] {
+  color: #067647;
+  font-size: 0.9rem;
+}
+
+@media (max-width: 700px) {
+  .inventory-item-fields {
+    grid-template-columns: minmax(0, 1fr) minmax(75px, 0.55fr);
+  }
+
+  .inventory-item-heading {
+    display: none;
+  }
+
+  .inventory-item-fields input:nth-of-type(1),
+  .inventory-item-fields input:nth-of-type(4),
+  .inventory-item-fields button {
+    grid-column: 1 / -1;
+  }
+
+  .inventory-item-fields button {
+    justify-self: end;
+  }
+}
+
+.Character ul {
+  padding-left: 1.25rem;
+}
+
+.character-overview {
+  width: min(100%, 900px);
+  margin: 0 auto;
+  text-align: left;
+}
+
+.character-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+}
+
+.character-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid #d0d5dd;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.character-select {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+  border: 0;
+  box-shadow: none;
+  text-align: left;
+}
+
+.delete-character-button {
+  align-self: center;
+  margin-right: 0.5rem;
+  border: 1px solid #f2b8b5;
+  color: #b42318;
+  background: #fff0ed;
+  box-shadow: none;
+}
+
+.delete-character-button:hover {
+  border-color: #b42318;
+  background: #fff3f2;
+}
+
+.delete-confirmation {
+  display: flex;
+  max-width: 15rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  padding: 0.5rem;
+  color: #344054;
+  font-size: 0.85rem;
+}
+
+.delete-confirm-button,
+.cancel-delete-button {
+  padding: 0.4rem 0.65rem;
+  box-shadow: none;
+}
+
+.delete-confirm-button {
+  border-color: #b42318;
+  color: #ffffff;
+  background: #b42318;
+}
+
+.delete-confirm-button:hover {
+  border-color: #912018;
+  background: #912018;
+}
+
+.cancel-delete-button {
+  border-color: #d0d5dd;
+  color: #344054;
+  background: #ffffff;
+}
+
+.back-button {
+  margin: 0 0 1rem max(1rem, calc((100% - 900px) / 2));
+}
+
+.overview-heading,
+.form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.character-form {
+  width: min(100% - 2rem, 420px);
+  margin: 0 auto;
+  display: grid;
+  gap: 1rem;
+  text-align: left;
+}
+
+.character-form label {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.character-form input {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.error-message {
+  color: #b42318;
+}

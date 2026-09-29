@@ -21,3 +21,7 @@ npm run tauri dev
 npm run build
 npm run tauri build
 ```
+
+## Default characters
+
+Edit `src-tauri/default-characters.json` to change the characters bundled into a build. On first launch, the app copies this JSON to its application data directory as `characters.json`; later launches use the saved file and do not overwrite it.
