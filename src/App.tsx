@@ -38,11 +38,38 @@ type CharacterMagic = {
 };
 
 type InventoryItem = {
+  id?: string;
   name: string;
   quantity: number;
   weight: number;
   description: string;
+  itemType?: string;
+  subtype?: string;
+  rarity?: string;
+  attunement?: string;
+  valueGold?: number;
+  armorDamage?: string;
+  damageType?: string;
+  properties?: string;
+  charges?: string;
+  chargeRegeneration?: string;
 };
+
+type CatalogItem = Omit<InventoryItem, "quantity"> & { id: string };
+type CatalogItemDraft = Omit<CatalogItem, "id">;
+const detailedItemCategories = {
+  weapon: { label: "Waffe", subcategories: ["Nahkampfwaffe", "Fernkampfwaffe", "Improvisierte Waffe"] },
+  armor: { label: "Rüstung", subcategories: ["Leichte Rüstung", "Mittlere Rüstung", "Schwere Rüstung", "Schild"] },
+  potion: { label: "Trank", subcategories: ["Trank", "Elixier", "Öl"] },
+  wondrous: { label: "Wundersamer Gegenstand", subcategories: ["Ring", "Zauberstab", "Stab", "Stecken", "Amulett", "Sonstiger Gegenstand"] },
+  gear: { label: "Ausrüstung", subcategories: ["Abenteuerausrüstung", "Behälter", "Verbrauchsgegenstand", "Sonstiges"] },
+  tool: { label: "Werkzeug", subcategories: ["Handwerkszeug", "Musikinstrument", "Spielset", "Fahrzeug"] },
+  ammunition: { label: "Munition", subcategories: ["Pfeile", "Bolzen", "Schleuderkugeln", "Wurfwaffe", "Sonstiges"] },
+  homebrew: { label: "Homebrew", subcategories: [] },
+} as const;
+type DetailedItemCategory = keyof typeof detailedItemCategories;
+
+const itemRarities = ["Gewöhnlich", "Ungewöhnlich", "Selten", "Sehr selten", "Legendär", "Artefakt"];
 
 type CharacterInventory = {
   items: InventoryItem[];
@@ -82,6 +109,7 @@ function copyInventory(inventory: CharacterInventory): CharacterInventory {
 
 function App() {
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [itemCatalog, setItemCatalog] = useState<CatalogItem[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<Character | null>(null);
   const [isCreating, setIsCreating] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -92,9 +120,16 @@ function App() {
 
     async function loadCharacters() {
       try {
-        const charactersJson = await invoke<string>("load_characters");
+        const [charactersJson, itemsJson] = await Promise.all([
+          invoke<string>("load_characters"),
+          invoke<string>("load_items"),
+        ]);
         const loadedCharacters = JSON.parse(charactersJson) as Character[];
-        if (isMounted) setCharacters(loadedCharacters);
+        const loadedItems = JSON.parse(itemsJson) as CatalogItem[];
+        if (isMounted) {
+          setCharacters(loadedCharacters);
+          setItemCatalog(loadedItems);
+        }
       } catch (error) {
         if (isMounted) {
           setErrorMessage(`Charaktere konnten nicht geladen werden: ${String(error)}`);
@@ -195,6 +230,19 @@ function App() {
     }
   }
 
+  async function addCatalogItem(item: CatalogItem): Promise<boolean> {
+    const updatedItems = [...itemCatalog, item];
+    try {
+      await invoke("save_items", { itemsJson: JSON.stringify(updatedItems) });
+      setItemCatalog(updatedItems);
+      setErrorMessage("");
+      return true;
+    } catch (error) {
+      setErrorMessage(`Item konnte nicht zum Katalog hinzugefügt werden: ${String(error)}`);
+      return false;
+    }
+  }
+
   return (
     <main className="container">
       <h1>RPG-Tracker</h1>
@@ -209,7 +257,12 @@ function App() {
           >
             Zurück zur Übersicht
           </button>
-          <CharacterSheet character={selectedCharacter} onSaveInventory={saveCharacterInventory} />
+          <CharacterSheet
+            character={selectedCharacter}
+            itemCatalog={itemCatalog}
+            onAddCatalogItem={addCatalogItem}
+            onSaveInventory={saveCharacterInventory}
+          />
         </>
       ) : isCreating ? (
         <form className="character-form" onSubmit={createCharacter}>
@@ -312,9 +365,13 @@ function CharacterOverview({
 
 function CharacterSheet({
   character,
+  itemCatalog,
+  onAddCatalogItem,
   onSaveInventory,
 }: {
   character: Character;
+  itemCatalog: CatalogItem[];
+  onAddCatalogItem: (item: CatalogItem) => Promise<boolean>;
   onSaveInventory: (inventory: CharacterInventory) => Promise<boolean>;
 }) {
   return (
@@ -346,7 +403,12 @@ function CharacterSheet({
         </ul>
       </section>
 
-      <InventoryEditor inventory={character.inventory} onSave={onSaveInventory} />
+      <InventoryEditor
+        inventory={character.inventory}
+        itemCatalog={itemCatalog}
+        onAddCatalogItem={onAddCatalogItem}
+        onSave={onSaveInventory}
+      />
 
       {character.spellSlots.isMagic && (
         <section>
@@ -374,20 +436,38 @@ function CharacterSheet({
 
 function InventoryEditor({
   inventory: savedInventory,
+  itemCatalog,
+  onAddCatalogItem,
   onSave,
 }: {
   inventory: CharacterInventory;
+  itemCatalog: CatalogItem[];
+  onAddCatalogItem: (item: CatalogItem) => Promise<boolean>;
   onSave: (inventory: CharacterInventory) => Promise<boolean>;
 }) {
   const [inventory, setInventory] = useState(() => copyInventory(savedInventory));
-  const [newItem, setNewItem] = useState<InventoryItem>({
+  const [selectedCatalogId, setSelectedCatalogId] = useState("");
+  const [isCreatingCatalogItem, setIsCreatingCatalogItem] = useState(false);
+  const [newItemMode, setNewItemMode] = useState<"simple" | "detailed">("simple");
+  const [newItemCategory, setNewItemCategory] = useState<DetailedItemCategory>("weapon");
+  const [newCatalogItem, setNewCatalogItem] = useState<CatalogItemDraft>({
     name: "",
-    quantity: 1,
     weight: 0,
     description: "",
+    itemType: "",
+    subtype: "",
+    rarity: "",
+    attunement: "Nein",
+    valueGold: 0,
+    armorDamage: "",
+    damageType: "",
+    properties: "",
+    charges: "",
+    chargeRegeneration: "",
   });
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [isAddingCatalogItem, setIsAddingCatalogItem] = useState(false);
 
   useEffect(() => {
     setInventory(copyInventory(savedInventory));
@@ -405,23 +485,108 @@ function InventoryEditor({
   }
 
   function addItem() {
-    const itemName = newItem.name.trim();
-    if (!itemName) return;
+    const catalogItem = itemCatalog.find((item) => item.id === selectedCatalogId);
+    if (!catalogItem) return;
 
     setInventory((current) => ({
       ...current,
-      items: [...current.items, { ...newItem, name: itemName }],
+      items: current.items.some((item) => item.id === catalogItem.id)
+        ? current.items.map((item) => item.id === catalogItem.id
+          ? { ...item, quantity: item.quantity + 1 }
+          : item)
+        : [...current.items, { ...catalogItem, quantity: 1 }],
     }));
-    setNewItem({ name: "", quantity: 1, weight: 0, description: "" });
+    setSelectedCatalogId("");
     setIsSaved(false);
   }
 
-  async function saveInventory(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function saveInventory() {
     setIsSaving(true);
     const saved = await onSave(inventory);
     setIsSaving(false);
     setIsSaved(saved);
+  }
+
+  function updateNewCatalogItem<K extends keyof CatalogItemDraft>(
+    key: K,
+    value: CatalogItemDraft[K],
+  ) {
+    setNewCatalogItem((current) => ({ ...current, [key]: value }));
+  }
+
+  function changeNewItemCategory(category: DetailedItemCategory) {
+    setNewItemCategory(category);
+    setNewCatalogItem((current) => ({
+      ...current,
+      itemType: category === "homebrew" ? "" : detailedItemCategories[category].label,
+      subtype: "",
+      rarity: "",
+      attunement: "Nein",
+      armorDamage: "",
+      damageType: "",
+      properties: "",
+      charges: "",
+      chargeRegeneration: "",
+    }));
+  }
+
+  async function createCatalogItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const itemName = newCatalogItem.name.trim();
+    if (!itemName) return;
+
+    const itemDetails: CatalogItemDraft = newItemMode === "simple"
+      ? {
+        name: itemName,
+        description: newCatalogItem.description.trim(),
+        weight: 0,
+        itemType: "",
+        subtype: "",
+        rarity: "",
+        attunement: "Nein",
+        valueGold: 0,
+        armorDamage: "",
+        damageType: "",
+        properties: "",
+        charges: "",
+        chargeRegeneration: "",
+      }
+      : {
+        ...newCatalogItem,
+        name: itemName,
+        description: newCatalogItem.description.trim(),
+        itemType: newItemCategory === "homebrew"
+          ? (newCatalogItem.itemType ?? "").trim()
+          : detailedItemCategories[newItemCategory].label,
+      };
+    const catalogItem: CatalogItem = { ...itemDetails, id: crypto.randomUUID() };
+
+    setIsAddingCatalogItem(true);
+    const wasAdded = await onAddCatalogItem(catalogItem);
+    setIsAddingCatalogItem(false);
+    if (!wasAdded) return;
+
+    setInventory((current) => ({
+      ...current,
+      items: [...current.items, { ...catalogItem, quantity: 1 }],
+    }));
+    setNewCatalogItem({
+      name: "",
+      weight: 0,
+      description: "",
+      itemType: "",
+      subtype: "",
+      rarity: "",
+      attunement: "Nein",
+      valueGold: 0,
+      armorDamage: "",
+      damageType: "",
+      properties: "",
+      charges: "",
+      chargeRegeneration: "",
+    });
+    setIsCreatingCatalogItem(false);
+    setIsSaved(false);
   }
 
   const coinFields: Array<{
@@ -435,11 +600,13 @@ function InventoryEditor({
     { key: "gold", label: "Gold", abbreviation: "GM" },
     { key: "platinum", label: "Platin", abbreviation: "PM" },
   ];
+  const showRarity = newItemCategory !== "gear";
+  const showAttunement = newItemCategory !== "gear";
 
   return (
     <section className="inventory-section">
       <h3>Inventar</h3>
-      <form className="inventory-editor" onSubmit={saveInventory}>
+      <div className="inventory-editor">
         <div className="inventory-item-fields inventory-item-heading" aria-hidden="true">
           <span>Gegenstand</span>
           <span>Anzahl</span>
@@ -448,87 +615,190 @@ function InventoryEditor({
           <span></span>
         </div>
         {inventory.items.map((item, index) => (
-          <div className="inventory-item-fields" key={`${item.name}-${index}`}>
-            <input
-              aria-label={`Gegenstand ${index + 1}`}
-              value={item.name}
-              onChange={(event) => updateItem(index, { name: event.currentTarget.value })}
-              required
-            />
-            <input
-              aria-label={`Anzahl für ${item.name}`}
-              type="number"
-              min="0"
-              step="1"
-              value={item.quantity}
-              onChange={(event) => updateItem(index, { quantity: Number(event.currentTarget.value) })}
-              required
-            />
-            <input
-              aria-label={`Gewicht für ${item.name}`}
-              type="number"
-              min="0"
-              step="0.1"
-              value={item.weight}
-              onChange={(event) => updateItem(index, { weight: Number(event.currentTarget.value) })}
-              required
-            />
-            <input
-              aria-label={`Beschreibung für ${item.name}`}
-              value={item.description}
-              onChange={(event) => updateItem(index, { description: event.currentTarget.value })}
-            />
-            <button
-              className="inventory-remove-button"
-              type="button"
-              aria-label={`${item.name} aus dem Inventar entfernen`}
-              onClick={() => {
-                setInventory((current) => ({
-                  ...current,
-                  items: current.items.filter((_, itemIndex) => itemIndex !== index),
-                }));
-                setIsSaved(false);
-              }}
-            >
-              Entfernen
-            </button>
+          <div className="inventory-item" key={`${item.id ?? item.name}-${index}`}>
+            <div className="inventory-item-fields">
+              <input
+                aria-label={`Gegenstand ${index + 1}`}
+                value={item.name}
+                onChange={(event) => updateItem(index, { name: event.currentTarget.value })}
+                required
+              />
+              <input
+                aria-label={`Anzahl für ${item.name}`}
+                type="number"
+                min="0"
+                step="1"
+                value={item.quantity}
+                onChange={(event) => updateItem(index, { quantity: Number(event.currentTarget.value) })}
+                required
+              />
+              <input
+                aria-label={`Gewicht für ${item.name}`}
+                type="number"
+                min="0"
+                step="0.1"
+                value={item.weight}
+                onChange={(event) => updateItem(index, { weight: Number(event.currentTarget.value) })}
+                required
+              />
+              <input
+                aria-label={`Beschreibung für ${item.name}`}
+                value={item.description}
+                onChange={(event) => updateItem(index, { description: event.currentTarget.value })}
+              />
+              <button
+                className="inventory-remove-button"
+                type="button"
+                aria-label={`${item.name} aus dem Inventar entfernen`}
+                onClick={() => {
+                  setInventory((current) => ({
+                    ...current,
+                    items: current.items.filter((_, itemIndex) => itemIndex !== index),
+                  }));
+                  setIsSaved(false);
+                }}
+              >
+                Entfernen
+              </button>
+            </div>
+            {(item.itemType || item.subtype || item.rarity || item.attunement || item.valueGold || item.armorDamage || item.damageType || item.properties || item.charges || item.chargeRegeneration) && (
+              <details className="inventory-item-details">
+                <summary>Itemdaten anzeigen</summary>
+                <dl>
+                  {item.itemType && <div><dt>Typ</dt><dd>{item.itemType}{item.subtype ? ` (${item.subtype})` : ""}</dd></div>}
+                  {item.rarity && <div><dt>Seltenheit</dt><dd>{item.rarity}</dd></div>}
+                  {item.attunement && item.attunement !== "Nein" && <div><dt>Einstimmung</dt><dd>{item.attunement}</dd></div>}
+                  {item.valueGold !== undefined && item.valueGold > 0 && <div><dt>Wert</dt><dd>{item.valueGold} GM</dd></div>}
+                  {item.armorDamage && <div><dt>RK / Schaden</dt><dd>{item.armorDamage}</dd></div>}
+                  {item.damageType && <div><dt>Schadensart</dt><dd>{item.damageType}</dd></div>}
+                  {item.properties && <div><dt>Eigenschaften</dt><dd>{item.properties}</dd></div>}
+                  {item.charges && <div><dt>Ladungen</dt><dd>{item.charges}</dd></div>}
+                  {item.chargeRegeneration && <div><dt>Regeneration</dt><dd>{item.chargeRegeneration}</dd></div>}
+                </dl>
+              </details>
+            )}
           </div>
         ))}
         {inventory.items.length === 0 && <p className="inventory-empty">Keine Gegenstände im Inventar.</p>}
 
-        <div className="inventory-item-fields inventory-add-row">
-          <input
-            aria-label="Neuer Gegenstand"
-            placeholder="Neuer Gegenstand"
-            value={newItem.name}
-            onChange={(event) => setNewItem({ ...newItem, name: event.currentTarget.value })}
-          />
-          <input
-            aria-label="Anzahl des neuen Gegenstands"
-            type="number"
-            min="0"
-            step="1"
-            value={newItem.quantity}
-            onChange={(event) => setNewItem({ ...newItem, quantity: Number(event.currentTarget.value) })}
-          />
-          <input
-            aria-label="Gewicht des neuen Gegenstands"
-            type="number"
-            min="0"
-            step="0.1"
-            value={newItem.weight}
-            onChange={(event) => setNewItem({ ...newItem, weight: Number(event.currentTarget.value) })}
-          />
-          <input
-            aria-label="Beschreibung des neuen Gegenstands"
-            placeholder="Beschreibung"
-            value={newItem.description}
-            onChange={(event) => setNewItem({ ...newItem, description: event.currentTarget.value })}
-          />
-          <button type="button" onClick={addItem} disabled={!newItem.name.trim()}>
-            Hinzufügen
+        <div className="inventory-catalog-add">
+          <label>
+            Item aus Katalog auswählen
+            <select value={selectedCatalogId} onChange={(event) => setSelectedCatalogId(event.currentTarget.value)}>
+              <option value="">Item auswählen ...</option>
+              {itemCatalog.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.name}{item.itemType ? ` · ${item.itemType}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" onClick={addItem} disabled={!selectedCatalogId}>
+            Zum Inventar hinzufügen
+          </button>
+          <button type="button" className="secondary-action" onClick={() => setIsCreatingCatalogItem((current) => !current)}>
+            {isCreatingCatalogItem ? "Neues Item schließen" : "Neues Item erstellen"}
           </button>
         </div>
+
+        {isCreatingCatalogItem && (
+          <form className="catalog-item-form" onSubmit={createCatalogItem}>
+            <h4>Neues Katalog-Item</h4>
+            <div className="mode-switch" role="group" aria-label="Item-Formularmodus">
+              <button
+                type="button"
+                className={newItemMode === "simple" ? "mode-option active" : "mode-option"}
+                aria-pressed={newItemMode === "simple"}
+                onClick={() => setNewItemMode("simple")}
+              >
+                Einfach
+              </button>
+              <button
+                type="button"
+                className={newItemMode === "detailed" ? "mode-option active" : "mode-option"}
+                aria-pressed={newItemMode === "detailed"}
+                onClick={() => setNewItemMode("detailed")}
+              >
+                D&D-Details
+              </button>
+            </div>
+            <label>
+              Name
+              <input value={newCatalogItem.name} onChange={(event) => updateNewCatalogItem("name", event.currentTarget.value)} required />
+            </label>
+            {newItemMode === "detailed" && (
+              <>
+                <div className="catalog-form-grid">
+                  <label>
+                    Gegenstandstyp
+                    <select value={newItemCategory} onChange={(event) => changeNewItemCategory(event.currentTarget.value as DetailedItemCategory)}>
+                      {Object.entries(detailedItemCategories).map(([value, category]) => (
+                        <option key={value} value={value}>{category.label}</option>
+                      ))}
+                    </select>
+                  </label>
+                  {newItemCategory === "homebrew" ? (
+                    <label>Eigener Typ<input value={newCatalogItem.itemType ?? ""} onChange={(event) => updateNewCatalogItem("itemType", event.currentTarget.value)} placeholder="z. B. Relikt" required /></label>
+                  ) : (
+                    <label>
+                      Unterkategorie
+                      <select value={newCatalogItem.subtype ?? ""} onChange={(event) => updateNewCatalogItem("subtype", event.currentTarget.value)}>
+                        <option value="">Auswählen ...</option>
+                        {detailedItemCategories[newItemCategory].subcategories.map((subtype) => (
+                          <option key={subtype} value={subtype}>{subtype}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {showRarity && (
+                    <label>
+                      Seltenheit
+                      <select value={newCatalogItem.rarity ?? ""} onChange={(event) => updateNewCatalogItem("rarity", event.currentTarget.value)}>
+                        <option value="">Auswählen ...</option>
+                        {itemRarities.map((rarity) => <option key={rarity} value={rarity}>{rarity}</option>)}
+                      </select>
+                    </label>
+                  )}
+                  {showAttunement && <label>Einstimmung<input value={newCatalogItem.attunement ?? "Nein"} onChange={(event) => updateNewCatalogItem("attunement", event.currentTarget.value)} placeholder="Nein oder Bedingungen" /></label>}
+                  <label>Wert (GM)<input type="number" min="0" step="0.1" value={newCatalogItem.valueGold} onChange={(event) => updateNewCatalogItem("valueGold", Number(event.currentTarget.value))} /></label>
+                  <label>Gewicht (lb.)<input type="number" min="0" step="0.1" value={newCatalogItem.weight} onChange={(event) => updateNewCatalogItem("weight", Number(event.currentTarget.value))} /></label>
+                </div>
+                {(newItemCategory === "weapon" || newItemCategory === "ammunition" || newItemCategory === "homebrew") && (
+                  <>
+                    <label>{newItemCategory === "weapon" ? "Schaden" : "Schaden / RK"}<input value={newCatalogItem.armorDamage ?? ""} onChange={(event) => updateNewCatalogItem("armorDamage", event.currentTarget.value)} placeholder="z. B. 1d8 + 2" /></label>
+                    <label>Schadensart<input value={newCatalogItem.damageType ?? ""} onChange={(event) => updateNewCatalogItem("damageType", event.currentTarget.value)} placeholder="z. B. Stich, Feuer" /></label>
+                    <label>Eigenschaften<input value={newCatalogItem.properties ?? ""} onChange={(event) => updateNewCatalogItem("properties", event.currentTarget.value)} placeholder="z. B. Finesse, Leicht, Reichweite (20/60)" /></label>
+                  </>
+                )}
+                {newItemCategory === "armor" && (
+                  <>
+                    <label>Rüstungsklasse<input value={newCatalogItem.armorDamage ?? ""} onChange={(event) => updateNewCatalogItem("armorDamage", event.currentTarget.value)} placeholder="z. B. RK 15" /></label>
+                    <label>Eigenschaften<input value={newCatalogItem.properties ?? ""} onChange={(event) => updateNewCatalogItem("properties", event.currentTarget.value)} placeholder="z. B. Stärke 13, Heimlichkeit-Nachteil" /></label>
+                  </>
+                )}
+                {(newItemCategory === "gear" || newItemCategory === "tool") && (
+                  <label>{newItemCategory === "tool" ? "Werkzeug / Verwendung" : "Eigenschaften"}<input value={newCatalogItem.properties ?? ""} onChange={(event) => updateNewCatalogItem("properties", event.currentTarget.value)} /></label>
+                )}
+                {(newItemCategory === "wondrous" || newItemCategory === "homebrew") && (
+                  <>
+                    {newItemCategory === "wondrous" && <label>Eigenschaften<input value={newCatalogItem.properties ?? ""} onChange={(event) => updateNewCatalogItem("properties", event.currentTarget.value)} /></label>}
+                    <label>Ladungen<input value={newCatalogItem.charges ?? ""} onChange={(event) => updateNewCatalogItem("charges", event.currentTarget.value)} placeholder="z. B. 3 / 3" /></label>
+                    <label>Ladungs-Regeneration<input value={newCatalogItem.chargeRegeneration ?? ""} onChange={(event) => updateNewCatalogItem("chargeRegeneration", event.currentTarget.value)} placeholder="z. B. bei Sonnenaufgang" /></label>
+                  </>
+                )}
+              </>
+            )}
+            <label>
+              Beschreibung / Effekte
+              <textarea value={newCatalogItem.description} onChange={(event) => updateNewCatalogItem("description", event.currentTarget.value)} rows={newItemMode === "detailed" ? 4 : 2} />
+            </label>
+            <div className="form-actions">
+              <button type="submit" disabled={isAddingCatalogItem || !newCatalogItem.name.trim()}>
+                {isAddingCatalogItem ? "Wird hinzugefügt ..." : "Im Katalog speichern und hinzufügen"}
+              </button>
+            </div>
+          </form>
+        )}
 
         <div className="coin-fields">
           {coinFields.map((coin) => (
@@ -549,12 +819,12 @@ function InventoryEditor({
         </div>
 
         <div className="inventory-save-row">
-          <button type="submit" disabled={isSaving}>
+          <button type="button" onClick={() => void saveInventory()} disabled={isSaving}>
             {isSaving ? "Speichert ..." : "Inventar speichern"}
           </button>
           {isSaved && <span role="status">Gespeichert</span>}
         </div>
-      </form>
+      </div>
     </section>
   );
 }
