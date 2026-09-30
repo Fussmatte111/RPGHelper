@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useDeferredValue, useEffect, useState, type FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { languageNames, languages, useTranslation, type Language, type TranslationKey } from "./i18n";
 import "./App.css";
@@ -125,6 +125,7 @@ type CharacterSpells = {
 };
 
 export type Character = {
+  id: string;
   details: CharacterDetails;
   attributes: CharacterAttributes;
   stats: CharacterStats;
@@ -137,6 +138,34 @@ function copyInventory(inventory: CharacterInventory): CharacterInventory {
   return {
     ...inventory,
     items: inventory.items.map((item) => ({ ...item })),
+  };
+}
+
+function ensureCharacterIds(characters: Character[]): { characters: Character[]; changed: boolean } {
+  let changed = false;
+  const withIds = characters.map((character) => {
+    if (character.id) return character;
+    changed = true;
+    return { ...character, id: crypto.randomUUID() };
+  });
+  return { characters: withIds, changed };
+}
+
+function emptyCatalogItemDraft(noAttunement: string): CatalogItemDraft {
+  return {
+    name: "",
+    weight: 0,
+    description: "",
+    itemType: "",
+    subtype: "",
+    rarity: "",
+    attunement: noAttunement,
+    valueGold: 0,
+    armorDamage: "",
+    damageType: "",
+    properties: "",
+    charges: "",
+    chargeRegeneration: "",
   };
 }
 
@@ -162,9 +191,16 @@ function App() {
           invoke<string>("load_items"),
           invoke<string>("load_spells"),
         ]);
-        const loadedCharacters = JSON.parse(charactersJson) as Character[];
+        const { characters: loadedCharacters, changed } = ensureCharacterIds(
+          JSON.parse(charactersJson) as Character[],
+        );
         const loadedItems = JSON.parse(itemsJson) as CatalogItem[];
         const loadedSpells = JSON.parse(spellsJson) as CatalogSpell[];
+        if (changed) {
+          await invoke("save_characters", {
+            charactersJson: JSON.stringify(loadedCharacters),
+          });
+        }
         if (isMounted) {
           setCharacters(loadedCharacters);
           setItemCatalog(loadedItems);
@@ -185,6 +221,49 @@ function App() {
     };
   }, []);
 
+  async function persistCharacters(
+    updatedCharacters: Character[],
+    {
+      select,
+      errorKey = "error.saveCharacter",
+    }: {
+      select?: Character | null;
+      errorKey?: TranslationKey;
+    } = {},
+  ): Promise<boolean> {
+    try {
+      await invoke("save_characters", {
+        charactersJson: JSON.stringify(updatedCharacters),
+      });
+      setCharacters(updatedCharacters);
+      if (select !== undefined) setSelectedCharacter(select);
+      setErrorMessage("");
+      return true;
+    } catch (error) {
+      setErrorMessage(t(errorKey, { error: String(error) }));
+      return false;
+    }
+  }
+
+  async function updateSelectedCharacter(
+    updater: (character: Character) => Character,
+    errorKey: TranslationKey,
+  ): Promise<boolean> {
+    if (!selectedCharacter) return false;
+
+    const selectedIndex = characters.findIndex((character) => character.id === selectedCharacter.id);
+    if (selectedIndex === -1) {
+      setErrorMessage(t("error.characterNotFound"));
+      return false;
+    }
+
+    const updatedCharacter = updater(selectedCharacter);
+    const updatedCharacters = characters.map((character, index) =>
+      index === selectedIndex ? updatedCharacter : character,
+    );
+    return persistCharacters(updatedCharacters, { select: updatedCharacter, errorKey });
+  }
+
   async function createCharacter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formData = new FormData(event.currentTarget);
@@ -193,6 +272,7 @@ function App() {
     const characterBeingEdited = isEditingCharacter ? selectedCharacter : null;
     if (isEditingCharacter && !characterBeingEdited) return;
     const newCharacter: Character = {
+      id: characterBeingEdited?.id ?? crypto.randomUUID(),
       details: {
         name: String(formData.get("name")).trim(),
         race: String(formData.get("race")).trim(),
@@ -243,26 +323,18 @@ function App() {
       },
       spells: characterBeingEdited ? characterBeingEdited.spells : { known: [] },
     };
-    const editedIndex = characterBeingEdited ? characters.indexOf(characterBeingEdited) : -1;
-    if (characterBeingEdited && editedIndex === -1) {
+    if (characterBeingEdited && !characters.some((character) => character.id === characterBeingEdited.id)) {
       setErrorMessage(t("error.characterNotFound"));
       return;
     }
     const updatedCharacters = characterBeingEdited
-      ? characters.map((character, index) => index === editedIndex ? newCharacter : character)
+      ? characters.map((character) => character.id === characterBeingEdited.id ? newCharacter : character)
       : [...characters, newCharacter];
 
-    try {
-      await invoke("save_characters", {
-        charactersJson: JSON.stringify(updatedCharacters),
-      });
-      setCharacters(updatedCharacters);
-      setSelectedCharacter(newCharacter);
+    const saved = await persistCharacters(updatedCharacters, { select: newCharacter });
+    if (saved) {
       setIsCreating(false);
       setIsEditingCharacter(false);
-      setErrorMessage("");
-    } catch (error) {
-      setErrorMessage(t("error.saveCharacter", { error: String(error) }));
     }
   }
 
@@ -271,73 +343,25 @@ function App() {
     if (!character) return false;
 
     const updatedCharacters = characters.filter((_, characterIndex) => characterIndex !== index);
-    try {
-      await invoke("save_characters", {
-        charactersJson: JSON.stringify(updatedCharacters),
-      });
-      setCharacters(updatedCharacters);
-      setErrorMessage("");
-      return true;
-    } catch (error) {
-      setErrorMessage(t("error.deleteCharacter", { error: String(error) }));
-      return false;
-    }
+    const saved = await persistCharacters(updatedCharacters, {
+      select: selectedCharacter?.id === character.id ? null : undefined,
+      errorKey: "error.deleteCharacter",
+    });
+    return saved;
   }
 
   async function saveCharacterInventory(inventory: CharacterInventory): Promise<boolean> {
-    if (!selectedCharacter) return false;
-
-    const selectedIndex = characters.indexOf(selectedCharacter);
-    if (selectedIndex === -1) {
-      setErrorMessage(t("error.characterNotFound"));
-      return false;
-    }
-
-    const updatedCharacter = { ...selectedCharacter, inventory: copyInventory(inventory) };
-    const updatedCharacters = characters.map((character, index) =>
-      index === selectedIndex ? updatedCharacter : character
+    return updateSelectedCharacter(
+      (character) => ({ ...character, inventory: copyInventory(inventory) }),
+      "error.saveInventory",
     );
-
-    try {
-      await invoke("save_characters", {
-        charactersJson: JSON.stringify(updatedCharacters),
-      });
-      setCharacters(updatedCharacters);
-      setSelectedCharacter(updatedCharacter);
-      setErrorMessage("");
-      return true;
-    } catch (error) {
-      setErrorMessage(t("error.saveInventory", { error: String(error) }));
-      return false;
-    }
   }
 
   async function saveCharacterSpells(spells: CharacterSpells): Promise<boolean> {
-    if (!selectedCharacter) return false;
-
-    const selectedIndex = characters.indexOf(selectedCharacter);
-    if (selectedIndex === -1) {
-      setErrorMessage(t("error.characterNotFound"));
-      return false;
-    }
-
-    const updatedCharacter = { ...selectedCharacter, spells };
-    const updatedCharacters = characters.map((character, index) =>
-      index === selectedIndex ? updatedCharacter : character
+    return updateSelectedCharacter(
+      (character) => ({ ...character, spells }),
+      "error.saveCharacterSpells",
     );
-
-    try {
-      await invoke("save_characters", {
-        charactersJson: JSON.stringify(updatedCharacters),
-      });
-      setCharacters(updatedCharacters);
-      setSelectedCharacter(updatedCharacter);
-      setErrorMessage("");
-      return true;
-    } catch (error) {
-      setErrorMessage(t("error.saveCharacterSpells", { error: String(error) }));
-      return false;
-    }
   }
 
   async function addCatalogItem(item: CatalogItem): Promise<boolean> {
@@ -536,21 +560,7 @@ function CatalogManager({
   const [activeTab, setActiveTab] = useState(initialTab);
   const [itemMode, setItemMode] = useState<"simple" | "detailed">("simple");
   const [itemCategory, setItemCategory] = useState<DetailedItemCategory>("weapon");
-  const [itemDraft, setItemDraft] = useState<CatalogItemDraft>({
-    name: "",
-    weight: 0,
-    description: "",
-    itemType: "",
-    subtype: "",
-    rarity: "",
-    attunement: t("item.noAttunement"),
-    valueGold: 0,
-    armorDamage: "",
-    damageType: "",
-    properties: "",
-    charges: "",
-    chargeRegeneration: "",
-  });
+  const [itemDraft, setItemDraft] = useState<CatalogItemDraft>(() => emptyCatalogItemDraft(t("item.noAttunement")));
   const [spellDraft, setSpellDraft] = useState<Omit<CatalogSpell, "id">>({
     name: "",
     level: 1,
@@ -606,11 +616,7 @@ function CatalogManager({
     const saved = await onSaveItems([...itemCatalog, item]);
     setIsSaving(false);
     if (saved) {
-      setItemDraft({
-        name: "", weight: 0, description: "", itemType: "", subtype: "", rarity: "",
-        attunement: t("item.noAttunement"), valueGold: 0, armorDamage: "", damageType: "",
-        properties: "", charges: "", chargeRegeneration: "",
-      });
+      setItemDraft(emptyCatalogItemDraft(t("item.noAttunement")));
     }
   }
 
@@ -794,7 +800,7 @@ function CharacterOverview({
       </div>
       <div className="character-list">
         {characters.map((character, index) => (
-          <div className="character-entry" key={`${character.details.name}-${index}`}>
+          <div className="character-entry" key={character.id}>
             <button className="character-select" onClick={() => onSelect(character)}>
               <strong>{character.details.name}</strong>
               <span>
@@ -975,25 +981,12 @@ function InventoryEditor({
   const { t, language } = useTranslation();
   const [inventory, setInventory] = useState(() => copyInventory(savedInventory));
   const [itemSearch, setItemSearch] = useState("");
+  const deferredItemSearch = useDeferredValue(itemSearch);
   const [selectedItemType, setSelectedItemType] = useState("all");
   const [isCreatingCatalogItem, setIsCreatingCatalogItem] = useState(false);
   const [newItemMode, setNewItemMode] = useState<"simple" | "detailed">("simple");
   const [newItemCategory, setNewItemCategory] = useState<DetailedItemCategory>("weapon");
-  const [newCatalogItem, setNewCatalogItem] = useState<CatalogItemDraft>({
-    name: "",
-    weight: 0,
-    description: "",
-    itemType: "",
-    subtype: "",
-    rarity: "",
-    attunement: t("item.noAttunement"),
-    valueGold: 0,
-    armorDamage: "",
-    damageType: "",
-    properties: "",
-    charges: "",
-    chargeRegeneration: "",
-  });
+  const [newCatalogItem, setNewCatalogItem] = useState<CatalogItemDraft>(() => emptyCatalogItemDraft(t("item.noAttunement")));
   const [isSaving, setIsSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
   const [isAddingCatalogItem, setIsAddingCatalogItem] = useState(false);
@@ -1033,7 +1026,12 @@ function InventoryEditor({
       .map((item) => item.itemType?.trim())
       .filter((itemType): itemType is string => Boolean(itemType)),
   ));
-  const normalizedItemSearch = itemSearch.trim().toLocaleLowerCase(language);
+  const ownedQuantities = new Map(
+    inventory.items
+      .filter((item): item is InventoryItem & { id: string } => Boolean(item.id))
+      .map((item) => [item.id, item.quantity]),
+  );
+  const normalizedItemSearch = deferredItemSearch.trim().toLocaleLowerCase(language);
   const filteredCatalogItems = itemCatalog.filter((item) => {
     const matchesType = selectedItemType === "all" || item.itemType === selectedItemType;
     const searchableText = [
@@ -1118,21 +1116,7 @@ function InventoryEditor({
       ...current,
       items: [...current.items, { ...catalogItem, quantity: 1 }],
     }));
-    setNewCatalogItem({
-      name: "",
-      weight: 0,
-      description: "",
-      itemType: "",
-      subtype: "",
-      rarity: "",
-      attunement: t("item.noAttunement"),
-      valueGold: 0,
-      armorDamage: "",
-      damageType: "",
-      properties: "",
-      charges: "",
-      chargeRegeneration: "",
-    });
+    setNewCatalogItem(emptyCatalogItemDraft(t("item.noAttunement")));
     setIsCreatingCatalogItem(false);
     setIsSaved(false);
   }
@@ -1215,7 +1199,7 @@ function InventoryEditor({
                 <dl>
                   {item.itemType && <div><dt>{t("item.detailType")}</dt><dd>{item.itemType}{item.subtype ? ` (${item.subtype})` : ""}</dd></div>}
                   {item.rarity && <div><dt>{t("item.detailRarity")}</dt><dd>{item.rarity}</dd></div>}
-                  {item.attunement && item.attunement !== t("item.noAttunement") && item.attunement !== "Nein" && item.attunement !== "No" && <div><dt>{t("item.detailAttunement")}</dt><dd>{item.attunement}</dd></div>}
+                  {item.attunement && item.attunement !== t("item.noAttunement") && <div><dt>{t("item.detailAttunement")}</dt><dd>{item.attunement}</dd></div>}
                   {item.valueGold !== undefined && item.valueGold > 0 && <div><dt>{t("item.detailValue")}</dt><dd>{item.valueGold} {language === "de" ? "GM" : "GP"}</dd></div>}
                   {item.armorDamage && <div><dt>{t("item.detailArmorDamage")}</dt><dd>{item.armorDamage}</dd></div>}
                   {item.damageType && <div><dt>{t("item.detailDamageType")}</dt><dd>{item.damageType}</dd></div>}
@@ -1271,13 +1255,13 @@ function InventoryEditor({
           </div>
           <div className="inventory-picker-results">
             {filteredCatalogItems.map((item) => {
-              const ownedItem = inventory.items.find((inventoryItem) => inventoryItem.id === item.id);
+              const ownedQuantity = ownedQuantities.get(item.id);
               return (
                 <article className="inventory-picker-item" key={item.id}>
                   <div className="inventory-picker-item-copy">
                     <div className="inventory-picker-item-title">
                       <strong>{item.name}</strong>
-                      {ownedItem && <span>{t("inventory.inInventory", { quantity: ownedItem.quantity })}</span>}
+                      {ownedQuantity !== undefined && <span>{t("inventory.inInventory", { quantity: ownedQuantity })}</span>}
                     </div>
                     <div className="inventory-picker-tags">
                       {item.itemType && <span>{item.itemType}</span>}
@@ -1438,6 +1422,7 @@ function SpellEditor({
   const { t } = useTranslation();
   const [knownSpells, setKnownSpells] = useState(() => savedSpells.known.map((spell) => ({ ...spell })));
   const [spellSearch, setSpellSearch] = useState("");
+  const deferredSpellSearch = useDeferredValue(spellSearch);
   const [selectedSpellLevel, setSelectedSpellLevel] = useState<number | "all">("all");
   const [selectedSpellSchool, setSelectedSpellSchool] = useState("all");
   const [isSaving, setIsSaving] = useState(false);
@@ -1455,12 +1440,15 @@ function SpellEditor({
     setIsSaved(false);
   }
 
-  const spellSchools = Array.from(new Set(
+  const knownSpellIds = new Set(
+    knownSpells.map((spell) => spell.id).filter((id): id is string => Boolean(id)),
+  );
+  const availableSpellSchools = Array.from(new Set(
     spellCatalog
       .map((spell) => spell.school?.trim())
       .filter((school): school is string => Boolean(school)),
   ));
-  const normalizedSpellSearch = spellSearch.trim().toLocaleLowerCase();
+  const normalizedSpellSearch = deferredSpellSearch.trim().toLocaleLowerCase();
   const filteredSpellCatalog = spellCatalog
     .filter((spell) => {
       const matchesLevel = selectedSpellLevel === "all" || spell.level === selectedSpellLevel;
@@ -1568,13 +1556,13 @@ function SpellEditor({
             <span>{t("spell.filterSchool")}</span>
             <select value={selectedSpellSchool} onChange={(event) => setSelectedSpellSchool(event.currentTarget.value)}>
               <option value="all">{t("spell.filterAllSchools")}</option>
-              {spellSchools.map((school) => <option key={school} value={school}>{school}</option>)}
+              {availableSpellSchools.map((school) => <option key={school} value={school}>{school}</option>)}
             </select>
           </label>
         </div>
         <div className="spell-picker-results">
           {filteredSpellCatalog.map((spell) => {
-            const isKnown = knownSpells.some((knownSpell) => knownSpell.id === spell.id);
+            const isKnown = knownSpellIds.has(spell.id);
             return (
               <article className="spell-picker-entry" key={spell.id}>
                 <div className="spell-picker-copy">

@@ -133,7 +133,7 @@ fn migrate_embedded_defaults(
     changed
 }
 
-fn migrate_embedded_json(path: &Path, legacy_json: &str, default_json: &str) -> Result<(), String> {
+fn migrate_embedded_json(path: &Path, legacy_json: &str, default_json: &str) -> Result<String, String> {
     let contents = std::fs::read_to_string(path).map_err(|error| error.to_string())?;
     let mut current: serde_json::Value =
         serde_json::from_str(&contents).map_err(|error| error.to_string())?;
@@ -143,9 +143,11 @@ fn migrate_embedded_json(path: &Path, legacy_json: &str, default_json: &str) -> 
         serde_json::from_str(default_json).map_err(|error| error.to_string())?;
     if migrate_embedded_defaults(&mut current, &legacy, &defaults) {
         let migrated = serde_json::to_string_pretty(&current).map_err(|error| error.to_string())?;
-        std::fs::write(path, migrated).map_err(|error| error.to_string())?;
+        std::fs::write(path, &migrated).map_err(|error| error.to_string())?;
+        Ok(migrated)
+    } else {
+        Ok(contents)
     }
-    Ok(())
 }
 
 fn read_or_migrate_json(
@@ -177,29 +179,27 @@ fn read_or_migrate_json(
     }
 }
 
-#[tauri::command]
-fn load_characters(app: tauri::AppHandle) -> Result<String, String> {
+fn app_data_file(app: &tauri::AppHandle, filename: &str) -> Result<std::path::PathBuf, String> {
     let directory = app
         .path()
         .app_data_dir()
         .map_err(|error| error.to_string())?;
     std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    let path = directory.join("characters.json");
-    read_or_migrate_json(&path, LEGACY_CHARACTERS_DE_JSON, DEFAULT_CHARACTERS_JSON)?;
-    migrate_embedded_json(&path, LEGACY_ITEMS_DE_JSON, DEFAULT_ITEMS_JSON)?;
-    migrate_embedded_json(&path, LEGACY_SPELLS_DE_JSON, DEFAULT_SPELLS_JSON)?;
-    std::fs::read_to_string(path).map_err(|error| error.to_string())
+    Ok(directory.join(filename))
+}
+
+#[tauri::command]
+fn load_characters(app: tauri::AppHandle) -> Result<String, String> {
+    let path = app_data_file(&app, "characters.json")?;
+    let _ = read_or_migrate_json(&path, LEGACY_CHARACTERS_DE_JSON, DEFAULT_CHARACTERS_JSON)?;
+    let _ = migrate_embedded_json(&path, LEGACY_ITEMS_DE_JSON, DEFAULT_ITEMS_JSON)?;
+    migrate_embedded_json(&path, LEGACY_SPELLS_DE_JSON, DEFAULT_SPELLS_JSON)
 }
 
 #[tauri::command]
 fn load_items(app: tauri::AppHandle) -> Result<String, String> {
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     read_or_migrate_json(
-        &directory.join("items.json"),
+        &app_data_file(&app, "items.json")?,
         LEGACY_ITEMS_DE_JSON,
         DEFAULT_ITEMS_JSON,
     )
@@ -207,13 +207,8 @@ fn load_items(app: tauri::AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 fn load_spells(app: tauri::AppHandle) -> Result<String, String> {
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     read_or_migrate_json(
-        &directory.join("spells.json"),
+        &app_data_file(&app, "spells.json")?,
         LEGACY_SPELLS_DE_JSON,
         DEFAULT_SPELLS_JSON,
     )
@@ -223,13 +218,7 @@ fn load_spells(app: tauri::AppHandle) -> Result<String, String> {
 fn save_characters(app: tauri::AppHandle, characters_json: String) -> Result<(), String> {
     serde_json::from_str::<serde_json::Value>(&characters_json)
         .map_err(|error| format!("Invalid characters JSON: {error}"))?;
-
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    std::fs::write(directory.join("characters.json"), characters_json)
+    std::fs::write(app_data_file(&app, "characters.json")?, characters_json)
         .map_err(|error| error.to_string())
 }
 
@@ -237,26 +226,14 @@ fn save_characters(app: tauri::AppHandle, characters_json: String) -> Result<(),
 fn save_items(app: tauri::AppHandle, items_json: String) -> Result<(), String> {
     serde_json::from_str::<Vec<serde_json::Value>>(&items_json)
         .map_err(|error| format!("Invalid items JSON: {error}"))?;
-
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    std::fs::write(directory.join("items.json"), items_json).map_err(|error| error.to_string())
+    std::fs::write(app_data_file(&app, "items.json")?, items_json).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 fn save_spells(app: tauri::AppHandle, spells_json: String) -> Result<(), String> {
     serde_json::from_str::<Vec<serde_json::Value>>(&spells_json)
         .map_err(|error| format!("Invalid spells JSON: {error}"))?;
-
-    let directory = app
-        .path()
-        .app_data_dir()
-        .map_err(|error| error.to_string())?;
-    std::fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
-    std::fs::write(directory.join("spells.json"), spells_json).map_err(|error| error.to_string())
+    std::fs::write(app_data_file(&app, "spells.json")?, spells_json).map_err(|error| error.to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
